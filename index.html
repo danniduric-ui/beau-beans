@@ -1,0 +1,1188 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Calories" />
+<meta name="theme-color" content="#2A5F58" />
+<title>Calorie & Weight Tracker</title>
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='20' fill='%232A5F58'/%3E%3Ctext x='50' y='68' font-size='60' text-anchor='middle'%3E%F0%9F%94%A5%3C/text%3E%3C/svg%3E" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { margin: 0; background: #F4EFE3; }
+  @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap');
+
+  .bg-teal { background-color: #2A5F58; }
+  .bg-mustard { background-color: #D4A017; }
+  .bg-cream { background-color: #F4EFE3; }
+  .text-cream { color: #F4EFE3; }
+  .text-ink { color: #2B2420; }
+  .text-brown { color: #6B5D4F; }
+  .text-tan { color: #8A7A66; }
+  .text-teal { color: #2A5F58; }
+  .text-rust { color: #C4622D; }
+  .text-gold { color: #B8862B; }
+  .text-mint { color: #DCE9E6; }
+  .border-line { border-color: #E3D9C4; }
+  .border-teal { border-color: #2A5F58; }
+  .border-mustard { border-color: #D4A017; }
+  .divide-line > * + * { border-top-color: #E3D9C4; }
+  .hover\:bg-teal-dark:hover { background-color: #234E48; }
+  .hover\:bg-mustard-dark:hover { background-color: #C09415; }
+  .hover\:text-ink:hover { color: #2B2420; }
+  .input { width: 100%; border: 2px solid #E3D9C4; border-radius: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.95rem; }
+  .input:focus { outline: none; border-color: #2A5F58; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+
+const { useState, useEffect, useMemo, useCallback } = React;
+
+// ---------- lightweight icon shims (replace lucide-react for standalone use) ----------
+const Icon = ({ size = 16, className = "", children }) => (
+  <span className={className} style={{ fontSize: size, lineHeight: 1, display: "inline-block" }}>{children}</span>
+);
+const Flame = (p) => <Icon {...p}>🔥</Icon>;
+const Scale = (p) => <Icon {...p}>⚖️</Icon>;
+const TrendingDown = (p) => <Icon {...p}>📉</Icon>;
+const TrendingUp = (p) => <Icon {...p}>📈</Icon>;
+const Minus = (p) => <Icon {...p}>➖</Icon>;
+const Settings2 = (p) => <Icon {...p}>⚙️</Icon>;
+const Plus = (p) => <Icon {...p}>➕</Icon>;
+const X = (p) => <Icon {...p}>✕</Icon>;
+const ChevronRight = (p) => <Icon {...p}>›</Icon>;
+const Footprints = (p) => <Icon {...p}>👣</Icon>;
+const CalendarClock = (p) => <Icon {...p}>📅</Icon>;
+const Target = (p) => <Icon {...p}>🎯</Icon>;
+const Upload = (p) => <Icon {...p}>⬆️</Icon>;
+const Info = (p) => <Icon {...p}>ℹ️</Icon>;
+
+
+
+// ---------- constants ----------
+const KCAL_PER_KG = 7700;
+const KCAL_PER_LB = 3500;
+
+const ACTIVITY = [
+  { id: "sedentary", label: "Sedentary", sub: "Desk job, little exercise", mult: 1.2 },
+  { id: "light", label: "Lightly active", sub: "1–3 workouts / week", mult: 1.375 },
+  { id: "moderate", label: "Moderately active", sub: "3–5 workouts / week", mult: 1.55 },
+  { id: "active", label: "Active", sub: "6–7 workouts / week", mult: 1.725 },
+  { id: "very", label: "Very active", sub: "Physical job or 2x/day training", mult: 1.9 },
+];
+
+const GOALS = [
+  { id: "lose", label: "Lose weight", icon: TrendingDown },
+  { id: "maintain", label: "Maintain", icon: Minus },
+  { id: "gain", label: "Gain weight", icon: TrendingUp },
+];
+
+const todayISO = () => new Date().toISOString().slice(0, 10);
+const fmt = (n, d = 0) => (Number.isFinite(n) ? n.toFixed(d) : "—");
+const daysBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 86400000);
+
+function bmr({ sex, weightKg, heightCm, age }) {
+  const base = 10 * weightKg + 6.25 * heightCm - 5 * age;
+  return sex === "male" ? base + 5 : base - 161;
+}
+
+// 7-day trailing moving average of weight, keyed by date
+function weightTrend(entries) {
+  const withWeight = entries.filter((e) => e.weight != null).sort((a, b) => a.date.localeCompare(b.date));
+  const out = [];
+  for (let i = 0; i < withWeight.length; i++) {
+    const windowStart = i - 6 < 0 ? 0 : i - 6;
+    const slice = withWeight.slice(windowStart, i + 1);
+    const avg = slice.reduce((s, e) => s + e.weight, 0) / slice.length;
+    out.push({ date: withWeight[i].date, weight: withWeight[i].weight, trend: avg });
+  }
+  return out;
+}
+
+function CalorieTracker() {
+  const [loaded, setLoaded] = useState(false);
+  const [profile, setProfile] = useState(null);
+  const [entries, setEntries] = useState([]);
+  const [tdeeState, setTdeeState] = useState(null); // { estimate, lastRecalc }
+  const [showSettings, setShowSettings] = useState(false);
+  const [entryModalDate, setEntryModalDate] = useState(null); // set to a date string to open the entry modal
+  const [showImport, setShowImport] = useState(false);
+  const [toast, setToast] = useState(null);
+
+  // ---------- load ----------
+  useEffect(() => {
+    (async () => {
+      try {
+        const p = await window.storage.get("profile", false);
+        if (p) setProfile(JSON.parse(p.value));
+      } catch {}
+      try {
+        const e = await window.storage.get("entries", false);
+        if (e) setEntries(JSON.parse(e.value));
+      } catch {}
+      try {
+        const t = await window.storage.get("tdeeState", false);
+        if (t) setTdeeState(JSON.parse(t.value));
+      } catch {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  const persist = useCallback(async (key, value) => {
+    try {
+      const result = await window.storage.set(key, JSON.stringify(value), false);
+      if (!result) {
+        console.error("storage save returned no result for key", key);
+        setToast("Couldn't save — your last change may not persist");
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch (e) {
+      console.error("storage error", e);
+      setToast("Couldn't save — your last change may not persist");
+      setTimeout(() => setToast(null), 3000);
+    }
+  }, []);
+
+  const flashToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2200);
+  };
+
+  // ---------- derived: units ----------
+  const units = profile?.units || "metric";
+  const kgToDisplay = (kg) => (units === "metric" ? kg : kg * 2.20462);
+  const displayToKg = (v) => (units === "metric" ? v : v / 2.20462);
+  const weightUnit = units === "metric" ? "kg" : "lb";
+  const kcalPerUnit = units === "metric" ? KCAL_PER_KG : KCAL_PER_LB;
+
+  // ---------- goal per-day adjustment (kcal) ----------
+  const goalAdjustment = useMemo(() => {
+    if (!profile) return 0;
+    if (profile.goalType === "maintain") return 0;
+    const rateKcalPerWeek = profile.rateKgPerWeek * KCAL_PER_KG;
+    const perDay = rateKcalPerWeek / 7;
+    return profile.goalType === "lose" ? -Math.abs(perDay) : Math.abs(perDay);
+  }, [profile]);
+
+  // ---------- initial TDEE from profile ----------
+  const initialTDEE = useMemo(() => {
+    if (!profile) return null;
+    const activityMult = ACTIVITY.find((a) => a.id === profile.activityLevel)?.mult || 1.375;
+    const b = bmr({ sex: profile.sex, weightKg: profile.weightKg, heightCm: profile.heightCm, age: profile.age });
+    return b * activityMult;
+  }, [profile]);
+
+  // current TDEE estimate = adaptive if we have one, else initial
+  const currentTDEE = tdeeState?.estimate ?? initialTDEE;
+  const dailyTarget = currentTDEE != null ? Math.round(currentTDEE + goalAdjustment) : null;
+
+  // ---------- adaptive recalculation ----------
+  // Runs whenever entries change: looks at last 14 days of data, recalcs at most once every 7 days
+  useEffect(() => {
+    if (!loaded || !profile || !initialTDEE) return;
+    const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+    const withWeight = sorted.filter((e) => e.weight != null);
+    const withCals = sorted.filter((e) => e.calories != null);
+    if (withWeight.length < 4 || withCals.length < 4) return;
+
+    const lastRecalc = tdeeState?.lastRecalc;
+    const today = todayISO();
+    if (lastRecalc && daysBetween(lastRecalc, today) < 7) return;
+
+    // window: last 14 days (or since last recalc if longer)
+    const windowDays = 14;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - windowDays);
+    const cutoffISO = cutoff.toISOString().slice(0, 10);
+
+    const wWindow = withWeight.filter((e) => e.date >= cutoffISO);
+    const cWindow = withCals.filter((e) => e.date >= cutoffISO);
+    if (wWindow.length < 4 || cWindow.length < 4) return;
+
+    const trend = weightTrend(entries);
+    const trendInWindow = trend.filter((t) => t.date >= cutoffISO);
+    if (trendInWindow.length < 4) return;
+
+    const firstTrend = trendInWindow[0].trend;
+    const lastTrend = trendInWindow[trendInWindow.length - 1].trend;
+    const spanDays = daysBetween(trendInWindow[0].date, trendInWindow[trendInWindow.length - 1].date) || 1;
+    const weightChangeKg = lastTrend - firstTrend;
+
+    const avgIntake = cWindow.reduce((s, e) => s + e.calories, 0) / cWindow.length;
+    const impliedTDEE = avgIntake - (weightChangeKg * KCAL_PER_KG) / spanDays;
+
+    // sanity bound: don't let implied TDEE swing wildly on noisy data
+    const prevEstimate = tdeeState?.estimate ?? initialTDEE;
+    const bounded = Math.max(prevEstimate * 0.75, Math.min(prevEstimate * 1.25, impliedTDEE));
+    const newEstimate = prevEstimate * 0.7 + bounded * 0.3; // smoothing
+
+    const next = { estimate: Math.round(newEstimate), lastRecalc: today };
+    setTdeeState(next);
+    persist("tdeeState", next);
+    flashToast(`Calorie target updated based on your last ${windowDays} days`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, loaded, profile]);
+
+  // ---------- today's entry ----------
+  const today = todayISO();
+  const todayEntry = entries.find((e) => e.date === today);
+
+  const upsertEntry = (date, patch) => {
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.date === date);
+      let next;
+      if (idx >= 0) {
+        next = [...prev];
+        next[idx] = { ...next[idx], ...patch };
+      } else {
+        next = [...prev, { date, ...patch }];
+      }
+      persist("entries", next);
+      return next;
+    });
+  };
+
+  // merge many entries at once (used by CSV import) — patch-merges per date, doesn't overwrite fields not present in the row
+  const mergeEntries = (rows) => {
+    setEntries((prev) => {
+      let next = [...prev];
+      rows.forEach(({ date, ...patch }) => {
+        const idx = next.findIndex((e) => e.date === date);
+        if (idx >= 0) next[idx] = { ...next[idx], ...patch };
+        else next.push({ date, ...patch });
+      });
+      persist("entries", next);
+      return next;
+    });
+  };
+
+  const chartData = useMemo(() => {
+    const trend = weightTrend(entries);
+    const byDate = {};
+    entries.forEach((e) => {
+      byDate[e.date] = { date: e.date, calories: e.calories ?? null, steps: e.steps ?? null, target: dailyTarget };
+    });
+    trend.forEach((t) => {
+      byDate[t.date] = { ...(byDate[t.date] || { date: t.date }), weight: t.weight, weightTrend: Math.round(t.trend * 10) / 10 };
+    });
+    return Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+  }, [entries, dailyTarget]);
+
+  const recentEntries = useMemo(
+    () => [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10),
+    [entries]
+  );
+
+  // ---------- 7-day over/under target ----------
+  const sevenDaySummary = useMemo(() => {
+    if (dailyTarget == null) return null;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 6);
+    const cutoffISO = cutoff.toISOString().slice(0, 10);
+    const window = entries.filter((e) => e.date >= cutoffISO && e.date <= today && e.calories != null);
+    if (window.length === 0) return null;
+    const total = Math.round(window.reduce((s, e) => s + (e.calories - dailyTarget), 0));
+    return { total, days: window.length };
+  }, [entries, dailyTarget, today]);
+
+  // ---------- time to goal weight ----------
+  const goalProjection = useMemo(() => {
+    if (!profile || profile.goalType === "maintain" || !profile.goalWeightKg || currentTDEE == null) return null;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 13);
+    const cutoffISO = cutoff.toISOString().slice(0, 10);
+    const recentCals = entries.filter((e) => e.date >= cutoffISO && e.calories != null);
+    if (recentCals.length < 3) return { status: "insufficient" };
+
+    const avgIntake = recentCals.reduce((s, e) => s + e.calories, 0) / recentCals.length;
+    const dailyBalance = avgIntake - currentTDEE; // + surplus, - deficit
+    const dailyChangeKg = dailyBalance / KCAL_PER_KG;
+
+    const trend = weightTrend(entries);
+    const latestWeight = trend.length ? trend[trend.length - 1].trend : profile.weightKg;
+    const remaining = profile.goalWeightKg - latestWeight;
+
+    if (Math.abs(remaining) < 0.05) return { status: "reached" };
+    if (Math.abs(dailyChangeKg) < 0.004) return { status: "stalled" };
+
+    const daysToGoal = remaining / dailyChangeKg;
+    if (daysToGoal <= 0) return { status: "wrong-direction" };
+
+    const endDate = new Date();
+    endDate.setDate(endDate.getDate() + Math.round(daysToGoal));
+    return {
+      status: "ok",
+      days: Math.round(daysToGoal),
+      endDateISO: endDate.toISOString().slice(0, 10),
+      remaining,
+    };
+  }, [profile, entries, currentTDEE]);
+
+  if (!loaded) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-cream">
+        <div className="text-teal font-medium tracking-wide">Loading…</div>
+      </div>
+    );
+  }
+
+  if (!profile) {
+    return <Onboarding onComplete={(p) => { setProfile(p); persist("profile", p); }} />;
+  }
+
+  return (
+    <div className="min-h-screen bg-cream text-ink" style={{ fontFamily: "'Inter', ui-sans-serif, system-ui" }}>
+      <FontImport />
+      {/* Header */}
+      <header className="border-b-4 border-teal bg-cream sticky top-0 z-20">
+        <div className="max-w-2xl mx-auto px-5 py-4 flex items-center justify-between">
+          <div>
+            <div className="text-xs tracking-[0.2em] uppercase text-gold font-semibold">Daily Target</div>
+            <div className="flex items-baseline gap-2">
+              <span className="text-4xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>
+                {dailyTarget != null ? dailyTarget.toLocaleString() : "—"}
+              </span>
+              <span className="text-sm text-brown">kcal / day</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="w-10 h-10 rounded-full bg-teal text-cream flex items-center justify-center hover:bg-teal-dark transition-colors"
+            aria-label="Settings"
+          >
+            <Settings2 size={18} />
+          </button>
+        </div>
+      </header>
+
+      <main className="max-w-2xl mx-auto px-5 py-6 space-y-6">
+        {/* Toast */}
+        {toast && (
+          <div className="bg-mustard text-ink rounded-lg px-4 py-3 text-sm font-medium shadow-sm">
+            {toast}
+          </div>
+        )}
+
+        {/* Today card */}
+        <section className="bg-white rounded-2xl border-2 border-line p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-bold text-lg" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Today</h2>
+            <span className="text-xs text-tan">{today}</span>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <StatBlock
+              icon={<Flame size={16} />}
+              label="Logged"
+              value={todayEntry?.calories != null ? `${todayEntry.calories}` : "—"}
+              sub="kcal eaten"
+              accent="#C4622D"
+            />
+            <StatBlock
+              icon={<Scale size={16} />}
+              label="Weight"
+              value={todayEntry?.weight != null ? fmt(kgToDisplay(todayEntry.weight), 1) : "—"}
+              sub={weightUnit}
+              accent="#2A5F58"
+            />
+            <StatBlock
+              icon={<Footprints size={16} />}
+              label="Steps"
+              value={todayEntry?.steps != null ? todayEntry.steps.toLocaleString() : "—"}
+              sub="steps"
+              accent="#B8862B"
+            />
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setEntryModalDate(today)}
+              className="flex-1 flex items-center justify-center gap-2 bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors"
+            >
+              <Plus size={16} /> Log today
+            </button>
+            <button
+              onClick={() => setEntryModalDate("__pick__")}
+              className="flex-1 flex items-center justify-center gap-2 border-2 border-teal text-teal rounded-xl py-3 font-medium hover:bg-cream transition-colors"
+            >
+              <CalendarClock size={16} /> Backdate entry
+            </button>
+          </div>
+        </section>
+
+        {/* Progress chart */}
+        {chartData.length > 1 && (
+          <section className="bg-white rounded-2xl border-2 border-line p-5">
+            <h2 className="font-bold text-lg mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Weight trend</h2>
+            <p className="text-xs text-tan mb-4">7-day smoothed average · last 30 days</p>
+            <Chart
+              data={chartData}
+              height={180}
+              series={[
+                { key: "weightTrend", type: "line", color: "#2A5F58" },
+                { key: "weight", type: "dots", color: "#D4A017" },
+              ]}
+              formatLeftY={(v) => fmt(kgToDisplay(v), 1)}
+            />
+
+            <h2 className="font-bold text-lg mt-6 mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Weight vs steps</h2>
+            <p className="text-xs text-tan mb-4">Weight trend (line) against daily steps (bars) · last 30 days</p>
+            <Chart
+              data={chartData}
+              height={180}
+              series={[
+                { key: "steps", type: "bar", color: "#B8862B", opacity: 0.55 },
+                { key: "weightTrend", type: "line", color: "#2A5F58", axis: "right" },
+              ]}
+              formatLeftY={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : Math.round(v))}
+              formatRightY={(v) => fmt(kgToDisplay(v), 1)}
+            />
+
+            <h2 className="font-bold text-lg mt-6 mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Calories vs target</h2>
+            <p className="text-xs text-tan mb-4">Last 30 days</p>
+            <Chart
+              data={chartData}
+              height={180}
+              series={[{ key: "calories", type: "line", color: "#C4622D" }]}
+              referenceLine={dailyTarget != null ? dailyTarget : undefined}
+            />
+          </section>
+        )}
+
+        {/* 7-day over/under */}
+        {sevenDaySummary && (
+          <section className="bg-white rounded-2xl border-2 border-line p-5">
+            <h2 className="font-bold text-lg mb-1" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Last 7 days vs target</h2>
+            <p className="text-xs text-tan mb-3">Based on {sevenDaySummary.days} logged day{sevenDaySummary.days === 1 ? "" : "s"}</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif", color: sevenDaySummary.total > 0 ? "#C4622D" : "#2A5F58" }}>
+                {sevenDaySummary.total > 0 ? "+" : ""}{sevenDaySummary.total.toLocaleString()}
+              </span>
+              <span className="text-sm text-brown">kcal {sevenDaySummary.total > 0 ? "over" : sevenDaySummary.total < 0 ? "under" : "at"} target</span>
+            </div>
+          </section>
+        )}
+
+        {/* Time to goal */}
+        {goalProjection && (
+          <section className="bg-white rounded-2xl border-2 border-line p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <Target size={18} className="text-teal" />
+              <h2 className="font-bold text-lg" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Time to goal weight</h2>
+            </div>
+            {goalProjection.status === "ok" && (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{goalProjection.days}</span>
+                  <span className="text-sm text-brown">days to go</span>
+                </div>
+                <p className="text-sm text-tan mt-1">
+                  Estimated around <strong className="text-ink">{goalProjection.endDateISO}</strong>, based on your recent intake vs. estimated TDEE.
+                </p>
+              </>
+            )}
+            {goalProjection.status === "insufficient" && (
+              <p className="text-sm text-tan">Log at least 3 days of calories in the last two weeks to get a projection.</p>
+            )}
+            {goalProjection.status === "stalled" && (
+              <p className="text-sm text-tan">Your recent intake is close to your maintenance level, so there's no clear trend toward your goal yet.</p>
+            )}
+            {goalProjection.status === "wrong-direction" && (
+              <p className="text-sm text-tan">Your recent intake is trending away from your goal weight rather than toward it.</p>
+            )}
+            {goalProjection.status === "reached" && (
+              <p className="text-sm text-tan">You're right at your goal weight — nice work.</p>
+            )}
+          </section>
+        )}
+
+        {/* TDEE info */}
+        <section className="bg-teal text-cream rounded-2xl p-5">
+          <h2 className="font-bold text-lg mb-2" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>How this works</h2>
+          <p className="text-sm text-mint leading-relaxed">
+            Your estimated maintenance burn (TDEE) is currently <strong>{currentTDEE != null ? Math.round(currentTDEE).toLocaleString() : "—"} kcal</strong>.
+            {tdeeState?.lastRecalc ? ` Last recalculated ${tdeeState.lastRecalc} using your logged weight and intake.` : " It's based on your profile until you've logged enough data (about 4+ days of weight and calories within a 2-week window) for an adaptive update."}
+            {" "}Every 7 days, it compares your actual weight trend to what your logged calories predicted, and quietly corrects itself — so the target adapts to you rather than a generic formula.
+          </p>
+        </section>
+
+        {/* History */}
+        {recentEntries.length > 0 && (
+          <section className="bg-white rounded-2xl border-2 border-line p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-lg" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Recent entries</h2>
+              <span className="text-xs text-tan">Tap a day to edit</span>
+            </div>
+            <div className="divide-y divide-line">
+              {recentEntries.map((e) => (
+                <button
+                  key={e.date}
+                  onClick={() => setEntryModalDate(e.date)}
+                  className="w-full flex items-center justify-between py-2.5 text-sm text-left hover:bg-cream transition-colors rounded-lg px-1 -mx-1"
+                >
+                  <span className="text-brown">{e.date}</span>
+                  <div className="flex items-center gap-3">
+                    <span className="flex items-center gap-1 text-rust">
+                      <Flame size={13} /> {e.calories != null ? e.calories : "—"}
+                    </span>
+                    <span className="flex items-center gap-1 text-teal">
+                      <Scale size={13} /> {e.weight != null ? fmt(kgToDisplay(e.weight), 1) : "—"}
+                    </span>
+                    <span className="flex items-center gap-1 text-gold">
+                      <Footprints size={13} /> {e.steps != null ? e.steps.toLocaleString() : "—"}
+                    </span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Import from Health export */}
+        <button
+          onClick={() => setShowImport(true)}
+          className="w-full flex items-center justify-center gap-2 border-2 border-line text-brown rounded-xl py-3 font-medium hover:bg-white transition-colors"
+        >
+          <Upload size={16} /> Import steps / weight data
+        </button>
+      </main>
+
+      {entryModalDate && (
+        <EntryModal
+          initialDate={entryModalDate === "__pick__" ? today : entryModalDate}
+          allowDateEdit={entryModalDate === "__pick__" || entryModalDate !== today}
+          maxDate={today}
+          entries={entries}
+          units={units}
+          kgToDisplay={kgToDisplay}
+          displayToKg={displayToKg}
+          weightUnit={weightUnit}
+          onClose={() => setEntryModalDate(null)}
+          onSave={(date, patch) => {
+            upsertEntry(date, patch);
+            setEntryModalDate(null);
+            flashToast(date === today ? "Today's entry saved" : `Entry saved for ${date}`);
+          }}
+        />
+      )}
+
+      {showImport && (
+        <ImportModal
+          onClose={() => setShowImport(false)}
+          onImport={(rows) => {
+            const converted = rows.map((r) => (r.weight != null ? { ...r, weight: displayToKg(r.weight) } : r));
+            mergeEntries(converted);
+            setShowImport(false);
+            flashToast(`Imported ${rows.length} day${rows.length === 1 ? "" : "s"} of data`);
+          }}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsModal
+          profile={profile}
+          onClose={() => setShowSettings(false)}
+          onSave={(p) => {
+            setProfile(p);
+            persist("profile", p);
+            setShowSettings(false);
+            flashToast("Profile updated");
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function FontImport() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600&display=swap');
+
+      .bg-teal { background-color: #2A5F58; }
+      .bg-mustard { background-color: #D4A017; }
+      .bg-cream { background-color: #F4EFE3; }
+      .text-cream { color: #F4EFE3; }
+      .text-ink { color: #2B2420; }
+      .text-brown { color: #6B5D4F; }
+      .text-tan { color: #8A7A66; }
+      .text-teal { color: #2A5F58; }
+      .text-rust { color: #C4622D; }
+      .text-gold { color: #B8862B; }
+      .text-mint { color: #DCE9E6; }
+      .border-line { border-color: #E3D9C4; }
+      .border-teal { border-color: #2A5F58; }
+      .border-mustard { border-color: #D4A017; }
+      .divide-line > * + * { border-top-color: #E3D9C4; }
+      .hover\\:bg-teal-dark:hover { background-color: #234E48; }
+      .hover\\:bg-mustard-dark:hover { background-color: #C09415; }
+      .hover\\:text-ink:hover { color: #2B2420; }
+    `}</style>
+  );
+}
+
+function StatBlock({ icon, label, value, sub, accent }) {
+  return (
+    <div className="bg-cream rounded-xl p-3.5 border border-line">
+      <div className="flex items-center gap-1.5 text-xs font-medium mb-1" style={{ color: accent }}>
+        {icon} {label}
+      </div>
+      <div className="text-2xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>{value}</div>
+      <div className="text-xs text-tan">{sub}</div>
+    </div>
+  );
+}
+
+function EntryModal({ initialDate, maxDate, entries, units, kgToDisplay, displayToKg, weightUnit, onClose, onSave }) {
+  const [date, setDate] = useState(initialDate);
+  const existing = entries.find((e) => e.date === date);
+
+  const [calories, setCalories] = useState(existing?.calories != null ? String(existing.calories) : "");
+  const [weight, setWeight] = useState(existing?.weight != null ? String(Math.round(kgToDisplay(existing.weight) * 10) / 10) : "");
+  const [steps, setSteps] = useState(existing?.steps != null ? String(existing.steps) : "");
+
+  // when the date changes, prefill from whatever's already logged for that day
+  const handleDateChange = (newDate) => {
+    setDate(newDate);
+    const e = entries.find((x) => x.date === newDate);
+    setCalories(e?.calories != null ? String(e.calories) : "");
+    setWeight(e?.weight != null ? String(Math.round(kgToDisplay(e.weight) * 10) / 10) : "");
+    setSteps(e?.steps != null ? String(e.steps) : "");
+  };
+
+  const save = () => {
+    const patch = {};
+    const c = parseFloat(calories);
+    const w = parseFloat(weight);
+    const s = parseInt(steps, 10);
+    if (Number.isFinite(c) && c > 0) patch.calories = Math.round(c);
+    if (Number.isFinite(w) && w > 0) patch.weight = displayToKg(w);
+    if (Number.isFinite(s) && s >= 0) patch.steps = s;
+    if (Object.keys(patch).length === 0) return;
+    onSave(date, patch);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-30 p-0 sm:p-5">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-sm p-5 border-2 border-line">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Log entry</h3>
+          <button onClick={onClose} className="text-tan hover:text-ink"><X size={20} /></button>
+        </div>
+
+        <label className="text-xs font-medium text-brown mb-1 block">Date</label>
+        <input
+          type="date"
+          value={date}
+          max={maxDate}
+          onChange={(e) => handleDateChange(e.target.value)}
+          className="w-full border-2 border-line rounded-xl px-3 py-2.5 text-sm font-medium mb-4 focus:outline-none focus:border-teal"
+        />
+
+        <div className="space-y-3 mb-4">
+          <div>
+            <label className="text-xs font-medium text-brown mb-1 block">Calories eaten</label>
+            <div className="flex items-center gap-2">
+              <input autoFocus type="number" value={calories} onChange={(e) => setCalories(e.target.value)} placeholder="0" className="flex-1 border-2 border-line rounded-xl px-3 py-2.5 text-base font-medium focus:outline-none focus:border-teal" />
+              <span className="text-xs text-tan w-10">kcal</span>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-brown mb-1 block">Weight</label>
+            <div className="flex items-center gap-2">
+              <input type="number" step="0.1" value={weight} onChange={(e) => setWeight(e.target.value)} placeholder="0" className="flex-1 border-2 border-line rounded-xl px-3 py-2.5 text-base font-medium focus:outline-none focus:border-teal" />
+              <span className="text-xs text-tan w-10">{weightUnit}</span>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-brown mb-1 block">Steps</label>
+            <div className="flex items-center gap-2">
+              <input type="number" value={steps} onChange={(e) => setSteps(e.target.value)} placeholder="0" className="flex-1 border-2 border-line rounded-xl px-3 py-2.5 text-base font-medium focus:outline-none focus:border-teal" />
+              <span className="text-xs text-tan w-10">steps</span>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-xs text-tan mb-3">Fill in only what you have — leave the rest blank.</p>
+
+        <button
+          onClick={save}
+          className="w-full bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors"
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({ profile, onClose, onSave }) {
+  const [p, setP] = useState(profile);
+  const set = (k, v) => setP((prev) => ({ ...prev, [k]: v }));
+  const isMetric = p.units === "metric";
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-30 p-0 sm:p-5 overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 border-2 border-line my-auto">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-bold text-lg" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Your profile</h3>
+          <button onClick={onClose} className="text-tan hover:text-ink"><X size={20} /></button>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <button onClick={() => set("units", "metric")} className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 ${isMetric ? "bg-teal text-white border-teal" : "border-line text-brown"}`}>Metric</button>
+            <button onClick={() => set("units", "imperial")} className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 ${!isMetric ? "bg-teal text-white border-teal" : "border-line text-brown"}`}>Imperial</button>
+          </div>
+
+          <Field label="Age">
+            <input type="number" value={p.age} onChange={(e) => set("age", parseInt(e.target.value) || 0)} className="input" />
+          </Field>
+
+          <Field label="Sex (for BMR calculation)">
+            <div className="flex gap-2">
+              <button onClick={() => set("sex", "female")} className={`flex-1 py-2 rounded-lg text-sm border-2 ${p.sex === "female" ? "bg-mustard border-mustard text-ink" : "border-line text-brown"}`}>Female</button>
+              <button onClick={() => set("sex", "male")} className={`flex-1 py-2 rounded-lg text-sm border-2 ${p.sex === "male" ? "bg-mustard border-mustard text-ink" : "border-line text-brown"}`}>Male</button>
+            </div>
+          </Field>
+
+          <Field label={`Height (${isMetric ? "cm" : "in"})`}>
+            <input
+              type="number"
+              value={isMetric ? p.heightCm : Math.round(p.heightCm / 2.54)}
+              onChange={(e) => set("heightCm", isMetric ? parseFloat(e.target.value) || 0 : (parseFloat(e.target.value) || 0) * 2.54)}
+              className="input"
+            />
+          </Field>
+
+          <Field label={`Current weight (${isMetric ? "kg" : "lb"})`}>
+            <input
+              type="number"
+              step="0.1"
+              value={isMetric ? p.weightKg : Math.round(p.weightKg * 2.20462 * 10) / 10}
+              onChange={(e) => set("weightKg", isMetric ? parseFloat(e.target.value) || 0 : (parseFloat(e.target.value) || 0) / 2.20462)}
+              className="input"
+            />
+          </Field>
+
+          <Field label="Activity level">
+            <select value={p.activityLevel} onChange={(e) => set("activityLevel", e.target.value)} className="input">
+              {ACTIVITY.map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Goal">
+            <div className="flex gap-2">
+              {GOALS.map((g) => (
+                <button key={g.id} onClick={() => set("goalType", g.id)} className={`flex-1 py-2 rounded-lg text-xs font-medium border-2 ${p.goalType === g.id ? "bg-teal border-teal text-white" : "border-line text-brown"}`}>
+                  {g.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+
+          {p.goalType !== "maintain" && (
+            <>
+              <Field label={`Target rate (${isMetric ? "kg" : "lb"} / week)`}>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={isMetric ? p.rateKgPerWeek : Math.round(p.rateKgPerWeek * 2.20462 * 100) / 100}
+                  onChange={(e) => set("rateKgPerWeek", isMetric ? parseFloat(e.target.value) || 0 : (parseFloat(e.target.value) || 0) / 2.20462)}
+                  className="input"
+                />
+              </Field>
+              <Field label={`Goal weight (${isMetric ? "kg" : "lb"})`}>
+                <input
+                  type="number"
+                  step="0.1"
+                  value={p.goalWeightKg != null ? (isMetric ? p.goalWeightKg : Math.round(p.goalWeightKg * 2.20462 * 10) / 10) : ""}
+                  onChange={(e) => {
+                    const raw = parseFloat(e.target.value);
+                    set("goalWeightKg", Number.isFinite(raw) ? (isMetric ? raw : raw / 2.20462) : undefined);
+                  }}
+                  className="input"
+                  placeholder="e.g. 65"
+                />
+              </Field>
+            </>
+          )}
+        </div>
+
+        <button
+          onClick={() => onSave(p)}
+          className="w-full bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors mt-5"
+        >
+          Save profile
+        </button>
+
+        <style>{`.input { width: 100%; border: 2px solid #E3D9C4; border-radius: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.95rem; }
+        .input:focus { outline: none; border-color: #2A5F58; }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <div>
+      <label className="text-xs font-medium text-brown mb-1 block">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Onboarding({ onComplete }) {
+  const [step, setStep] = useState(0);
+  const [units, setUnits] = useState("metric");
+  const [sex, setSex] = useState("female");
+  const [age, setAge] = useState("");
+  const [heightIn, setHeightIn] = useState("");
+  const [weightIn, setWeightIn] = useState("");
+  const [activityLevel, setActivityLevel] = useState("moderate");
+  const [goalType, setGoalType] = useState("maintain");
+  const [rateIn, setRateIn] = useState(units === "metric" ? "0.5" : "1");
+  const [goalWeightIn, setGoalWeightIn] = useState("");
+
+  const isMetric = units === "metric";
+  const steps = ["units", "about-you", "activity", "goal", "review"];
+
+  const heightCm = isMetric ? parseFloat(heightIn) || 0 : (parseFloat(heightIn) || 0) * 2.54;
+  const weightKg = isMetric ? parseFloat(weightIn) || 0 : (parseFloat(weightIn) || 0) / 2.20462;
+  const rateKgPerWeek = goalType === "maintain" ? 0 : isMetric ? parseFloat(rateIn) || 0 : (parseFloat(rateIn) || 0) / 2.20462;
+  const goalWeightKg = goalType === "maintain" || !goalWeightIn ? undefined : isMetric ? parseFloat(goalWeightIn) : parseFloat(goalWeightIn) / 2.20462;
+
+  const canProceed = () => {
+    if (steps[step] === "about-you") return age && heightIn && weightIn;
+    return true;
+  };
+
+  const finish = () => {
+    onComplete({
+      units, sex, age: parseInt(age), heightCm, weightKg, activityLevel, goalType, rateKgPerWeek, goalWeightKg,
+    });
+  };
+
+  return (
+    <div className="min-h-screen bg-cream text-ink flex items-center justify-center p-5" style={{ fontFamily: "'Inter', ui-sans-serif, system-ui" }}>
+      <FontImport />
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="w-14 h-14 rounded-full bg-teal text-cream flex items-center justify-center mx-auto mb-3">
+            <Flame size={24} />
+          </div>
+          <h1 className="text-2xl font-bold" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Set up your target</h1>
+          <p className="text-sm text-tan mt-1">A few details to estimate your maintenance calories — it'll adapt as you log.</p>
+        </div>
+
+        <div className="bg-white rounded-2xl border-2 border-line p-5">
+          {steps[step] === "units" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium mb-2">Which units do you use?</p>
+              <div className="flex gap-2">
+                <button onClick={() => { setUnits("metric"); }} className={`flex-1 py-3 rounded-xl border-2 font-medium ${isMetric ? "bg-teal border-teal text-white" : "border-line text-brown"}`}>Metric (kg/cm)</button>
+                <button onClick={() => { setUnits("imperial"); }} className={`flex-1 py-3 rounded-xl border-2 font-medium ${!isMetric ? "bg-teal border-teal text-white" : "border-line text-brown"}`}>Imperial (lb/in)</button>
+              </div>
+            </div>
+          )}
+
+          {steps[step] === "about-you" && (
+            <div className="space-y-3">
+              <Field label="Sex (used for BMR calculation)">
+                <div className="flex gap-2">
+                  <button onClick={() => setSex("female")} className={`flex-1 py-2 rounded-lg text-sm border-2 ${sex === "female" ? "bg-mustard border-mustard text-ink" : "border-line text-brown"}`}>Female</button>
+                  <button onClick={() => setSex("male")} className={`flex-1 py-2 rounded-lg text-sm border-2 ${sex === "male" ? "bg-mustard border-mustard text-ink" : "border-line text-brown"}`}>Male</button>
+                </div>
+              </Field>
+              <Field label="Age"><input type="number" value={age} onChange={(e) => setAge(e.target.value)} className="input" placeholder="e.g. 30" /></Field>
+              <Field label={`Height (${isMetric ? "cm" : "in"})`}><input type="number" value={heightIn} onChange={(e) => setHeightIn(e.target.value)} className="input" placeholder={isMetric ? "e.g. 168" : "e.g. 66"} /></Field>
+              <Field label={`Current weight (${isMetric ? "kg" : "lb"})`}><input type="number" step="0.1" value={weightIn} onChange={(e) => setWeightIn(e.target.value)} className="input" placeholder={isMetric ? "e.g. 68" : "e.g. 150"} /></Field>
+            </div>
+          )}
+
+          {steps[step] === "activity" && (
+            <div className="space-y-2">
+              <p className="text-sm font-medium mb-2">How active are you day-to-day?</p>
+              {ACTIVITY.map((a) => (
+                <button key={a.id} onClick={() => setActivityLevel(a.id)} className={`w-full text-left px-4 py-3 rounded-xl border-2 ${activityLevel === a.id ? "bg-teal border-teal text-white" : "border-line"}`}>
+                  <div className="font-medium text-sm">{a.label}</div>
+                  <div className={`text-xs ${activityLevel === a.id ? "text-mint" : "text-tan"}`}>{a.sub}</div>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {steps[step] === "goal" && (
+            <div className="space-y-3">
+              <p className="text-sm font-medium mb-2">What's your goal?</p>
+              <div className="flex gap-2">
+                {GOALS.map((g) => (
+                  <button key={g.id} onClick={() => setGoalType(g.id)} className={`flex-1 py-3 rounded-xl border-2 flex flex-col items-center gap-1 ${goalType === g.id ? "bg-teal border-teal text-white" : "border-line text-brown"}`}>
+                    <g.icon size={16} />
+                    <span className="text-xs font-medium">{g.label}</span>
+                  </button>
+                ))}
+              </div>
+              {goalType !== "maintain" && (
+                <>
+                  <Field label={`Target rate (${isMetric ? "kg" : "lb"} per week)`}>
+                    <input type="number" step="0.1" value={rateIn} onChange={(e) => setRateIn(e.target.value)} className="input" />
+                  </Field>
+                  <Field label={`Goal weight (${isMetric ? "kg" : "lb"}) — optional`}>
+                    <input type="number" step="0.1" value={goalWeightIn} onChange={(e) => setGoalWeightIn(e.target.value)} className="input" placeholder="For a time-to-goal estimate" />
+                  </Field>
+                </>
+              )}
+            </div>
+          )}
+
+          {steps[step] === "review" && (
+            <div className="space-y-2 text-sm">
+              <p className="font-medium mb-2">Ready to go</p>
+              <div className="bg-cream rounded-xl p-4 space-y-1 text-brown">
+                <p>{sex === "female" ? "Female" : "Male"}, {age} yrs, {fmt(isMetric ? heightCm : heightCm / 2.54, isMetric ? 0 : 0)} {isMetric ? "cm" : "in"}, {fmt(isMetric ? weightKg : weightKg * 2.20462, 1)} {isMetric ? "kg" : "lb"}</p>
+                <p>{ACTIVITY.find((a) => a.id === activityLevel)?.label}</p>
+                <p>Goal: {GOALS.find((g) => g.id === goalType)?.label}{goalType !== "maintain" ? ` at ${fmt(isMetric ? rateKgPerWeek : rateKgPerWeek * 2.20462, 2)} ${isMetric ? "kg" : "lb"}/week` : ""}{goalWeightKg ? ` → target ${fmt(isMetric ? goalWeightKg : goalWeightKg * 2.20462, 1)} ${isMetric ? "kg" : "lb"}` : ""}</p>
+              </div>
+              <p className="text-xs text-tan pt-2">You can edit this anytime from settings. Your target will start adapting automatically once you've logged about 4+ days of weight and calories.</p>
+            </div>
+          )}
+
+          <div className="flex gap-2 mt-5">
+            {step > 0 && (
+              <button onClick={() => setStep(step - 1)} className="px-4 py-2.5 rounded-xl border-2 border-line text-brown text-sm font-medium">Back</button>
+            )}
+            {step < steps.length - 1 ? (
+              <button
+                disabled={!canProceed()}
+                onClick={() => setStep(step + 1)}
+                className="flex-1 bg-teal text-white rounded-xl py-2.5 font-medium flex items-center justify-center gap-1 disabled:opacity-40"
+              >
+                Continue <ChevronRight size={16} />
+              </button>
+            ) : (
+              <button onClick={finish} className="flex-1 bg-teal text-white rounded-xl py-2.5 font-medium">
+                Start tracking
+              </button>
+            )}
+          </div>
+        </div>
+
+        <style>{`.input { width: 100%; border: 2px solid #E3D9C4; border-radius: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.95rem; }
+        .input:focus { outline: none; border-color: #2A5F58; }`}</style>
+      </div>
+    </div>
+  );
+}
+
+function ImportModal({ onClose, onImport }) {
+  const [text, setText] = useState("");
+  const [result, setResult] = useState(null);
+
+  const parse = () => {
+    const lines = text.trim().split("\n").map((l) => l.trim()).filter(Boolean);
+    if (lines.length === 0) return;
+
+    const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
+    const hasHeader = header.includes("date");
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+    const cols = hasHeader ? header : ["date", "steps", "weight", "calories"];
+
+    const dateIdx = cols.indexOf("date");
+    const stepsIdx = cols.indexOf("steps");
+    const weightIdx = cols.indexOf("weight");
+    const calIdx = cols.indexOf("calories");
+
+    const rows = [];
+    let skipped = 0;
+    dataLines.forEach((line) => {
+      const parts = line.split(",").map((p) => p.trim());
+      const rawDate = dateIdx >= 0 ? parts[dateIdx] : null;
+      const parsedDate = rawDate ? new Date(rawDate) : null;
+      if (!rawDate || !parsedDate || isNaN(parsedDate.getTime())) {
+        skipped++;
+        return;
+      }
+      const date = parsedDate.toISOString().slice(0, 10);
+      const row = { date };
+      if (stepsIdx >= 0 && parts[stepsIdx] && !isNaN(parseFloat(parts[stepsIdx]))) row.steps = Math.round(parseFloat(parts[stepsIdx]));
+      if (weightIdx >= 0 && parts[weightIdx] && !isNaN(parseFloat(parts[weightIdx]))) row.weight = parseFloat(parts[weightIdx]);
+      if (calIdx >= 0 && parts[calIdx] && !isNaN(parseFloat(parts[calIdx]))) row.calories = Math.round(parseFloat(parts[calIdx]));
+      if (Object.keys(row).length > 1) rows.push(row);
+      else skipped++;
+    });
+
+    setResult({ rows, skipped });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-30 p-0 sm:p-5 overflow-y-auto">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl w-full sm:max-w-md p-5 border-2 border-line my-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-bold text-lg" style={{ fontFamily: "'Space Grotesk', sans-serif" }}>Import data</h3>
+          <button onClick={onClose} className="text-tan hover:text-ink"><X size={20} /></button>
+        </div>
+
+        <div className="flex gap-2 bg-cream rounded-xl p-3 mb-4">
+          <Info size={16} className="text-teal shrink-0 mt-0.5" />
+          <p className="text-xs text-brown leading-relaxed">
+            There's no direct web link to Apple Health — Apple only exposes HealthKit to native iOS apps, not browsers. The closest workaround: use the Shortcuts app to pull your Steps and Active Energy, format them as CSV, and paste the result below. Weight can be added the same way.
+          </p>
+        </div>
+
+        <label className="text-xs font-medium text-brown mb-1 block">
+          Paste CSV — one row per day: <span className="font-mono">date,steps,weight,calories</span>
+        </label>
+        <textarea
+          value={text}
+          onChange={(e) => { setText(e.target.value); setResult(null); }}
+          placeholder={"date,steps,weight,calories\n2026-07-20,8342,68.2,2100\n2026-07-21,10211,,2050"}
+          rows={6}
+          className="w-full border-2 border-line rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:border-teal mb-3"
+        />
+        <p className="text-xs text-tan mb-4">Leave a cell blank to skip that field for a day. Weight should be in the units you set up with (kg or lb).</p>
+
+        {result && (
+          <div className="bg-cream rounded-xl p-3 mb-4 text-xs text-brown">
+            Parsed {result.rows.length} day{result.rows.length === 1 ? "" : "s"}
+            {result.skipped > 0 ? `, skipped ${result.skipped} row${result.skipped === 1 ? "" : "s"} (missing or invalid date)` : ""}.
+          </div>
+        )}
+
+        {!result ? (
+          <button onClick={parse} disabled={!text.trim()} className="w-full bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors disabled:opacity-40">
+            Preview
+          </button>
+        ) : (
+          <button
+            onClick={() => result.rows.length > 0 && onImport(result.rows)}
+            disabled={result.rows.length === 0}
+            className="w-full bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors disabled:opacity-40"
+          >
+            Import {result.rows.length} day{result.rows.length === 1 ? "" : "s"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------- lightweight custom chart (replaces recharts for standalone use) ----------
+function Chart({ data, series, height = 180, referenceLine, formatLeftY, formatRightY }) {
+  const width = 600;
+  const padding = { top: 10, right: 40, bottom: 22, left: 40 };
+  const plotW = width - padding.left - padding.right;
+  const plotH = height - padding.top - padding.bottom;
+
+  const xScale = (i) => padding.left + (data.length <= 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
+
+  const leftKeys = series.filter((s) => s.axis !== "right").map((s) => s.key);
+  const rightKeys = series.filter((s) => s.axis === "right").map((s) => s.key);
+  const collect = (keys) => data.flatMap((d) => keys.map((k) => d[k]).filter((v) => v != null));
+
+  function makeYScale(vals, extra) {
+    let all = [...vals];
+    if (extra != null) all.push(extra);
+    if (all.length === 0) return { scale: () => padding.top + plotH / 2, min: 0, max: 0 };
+    let min = Math.min(...all), max = Math.max(...all);
+    if (min === max) { min -= 1; max += 1; }
+    const pad = (max - min) * 0.12;
+    min -= pad; max += pad;
+    return { scale: (v) => padding.top + plotH - ((v - min) / (max - min)) * plotH, min, max };
+  }
+
+  const leftY = makeYScale(collect(leftKeys), rightKeys.length === 0 ? referenceLine : undefined);
+  const rightY = rightKeys.length > 0 ? makeYScale(collect(rightKeys)) : null;
+
+  const labelStep = Math.max(1, Math.ceil(data.length / 6));
+
+  return (
+    <div style={{ width: "100%", overflow: "hidden" }}>
+      <svg viewBox={`0 0 ${width} ${height}`} style={{ width: "100%", height, display: "block" }}>
+        <line x1={padding.left} x2={width - padding.right} y1={padding.top + plotH} y2={padding.top + plotH} stroke="#E3D9C4" />
+        {referenceLine != null && (
+          <line
+            x1={padding.left} x2={width - padding.right}
+            y1={leftY.scale(referenceLine)} y2={leftY.scale(referenceLine)}
+            stroke="#C4622D" strokeDasharray="4 4" strokeWidth="1.5"
+          />
+        )}
+        {series.map((s) => {
+          const yObj = s.axis === "right" ? rightY : leftY;
+          const pts = data.map((d, i) => (d[s.key] != null ? { x: xScale(i), y: yObj.scale(d[s.key]) } : null));
+
+          if (s.type === "bar") {
+            const barW = Math.max(2, (plotW / data.length) * 0.5);
+            return pts.map((p, i) => p && (
+              <rect key={s.key + i} x={p.x - barW / 2} y={p.y} width={barW}
+                height={Math.max(0, padding.top + plotH - p.y)} fill={s.color} opacity={s.opacity ?? 1} rx="2" />
+            ));
+          }
+          if (s.type === "dots") {
+            return pts.map((p, i) => p && <circle key={s.key + i} cx={p.x} cy={p.y} r={2.5} fill={s.color} />);
+          }
+          const path = pts.reduce((acc, p) => (p ? acc + (acc ? " L " : "M ") + p.x + "," + p.y : acc), "");
+          return <path key={s.key} d={path} fill="none" stroke={s.color} strokeWidth="2.5" />;
+        })}
+        {data.map((d, i) => (
+          i % labelStep === 0 ? (
+            <text key={i} x={xScale(i)} y={height - 6} fontSize="9" fill="#8A7A66" textAnchor="middle">{d.date.slice(5)}</text>
+          ) : null
+        ))}
+        <text x={padding.left - 6} y={leftY.scale(leftY.max) + 3} fontSize="9" fill="#8A7A66" textAnchor="end">
+          {formatLeftY ? formatLeftY(leftY.max) : Math.round(leftY.max)}
+        </text>
+        <text x={padding.left - 6} y={leftY.scale(leftY.min) + 3} fontSize="9" fill="#8A7A66" textAnchor="end">
+          {formatLeftY ? formatLeftY(leftY.min) : Math.round(leftY.min)}
+        </text>
+        {rightY && (
+          <>
+            <text x={width - padding.right + 6} y={rightY.scale(rightY.max) + 3} fontSize="9" fill="#8A7A66" textAnchor="start">
+              {formatRightY ? formatRightY(rightY.max) : Math.round(rightY.max)}
+            </text>
+            <text x={width - padding.right + 6} y={rightY.scale(rightY.min) + 3} fontSize="9" fill="#8A7A66" textAnchor="start">
+              {formatRightY ? formatRightY(rightY.min) : Math.round(rightY.min)}
+            </text>
+          </>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+// ---------- storage shim: localStorage instead of Claude's window.storage ----------
+window.storage = {
+  get: async (key) => {
+    const v = localStorage.getItem("calorie-tracker:" + key);
+    if (v == null) return null;
+    return { key, value: v };
+  },
+  set: async (key, value) => {
+    localStorage.setItem("calorie-tracker:" + key, value);
+    return { key, value };
+  },
+  delete: async (key) => {
+    localStorage.removeItem("calorie-tracker:" + key);
+    return { key, deleted: true };
+  },
+  list: async (prefix = "") => {
+    const keys = Object.keys(localStorage)
+      .filter((k) => k.startsWith("calorie-tracker:" + prefix))
+      .map((k) => k.replace("calorie-tracker:", ""));
+    return { keys };
+  },
+};
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<CalorieTracker />);
+
+</script>
+</body>
+</html>
