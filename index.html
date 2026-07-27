@@ -12804,7 +12804,7 @@ react-dom/cjs/react-dom-client.production.js:
 /* ---- App code (pre-compiled from JSX, no runtime Babel needed) ---- */
 "use strict";
 const { useState, useEffect, useMemo, useCallback } = React;
-// ---------- lightweight icon shims (replace lucide-react for standalone use) ----------
+// ---------- lightweight icon shims (no external icon library needed) ----------
 const Icon = ({ size = 16, className = "", children }) => (React.createElement("span", { className: className, style: { fontSize: size, lineHeight: 1, display: "inline-block" } }, children));
 const Flame = (p) => React.createElement(Icon, { ...p }, "\uD83D\uDD25");
 const Scale = (p) => React.createElement(Icon, { ...p }, "\u2696\uFE0F");
@@ -13070,6 +13070,90 @@ function CalorieTracker() {
             remaining,
         };
     }, [profile, entries, currentTDEE]);
+    // ---------- total deficit banked (all-time) ----------
+    const deficitBanked = useMemo(() => {
+        if (dailyTarget == null)
+            return null;
+        const logged = entries.filter((e) => e.calories != null);
+        if (logged.length === 0)
+            return null;
+        const totalKcal = logged.reduce((s, e) => s + (dailyTarget - e.calories), 0);
+        const kg = totalKcal / KCAL_PER_KG;
+        return { totalKcal: Math.round(totalKcal), kg, days: logged.length };
+    }, [entries, dailyTarget]);
+    // ---------- goal progress bar ----------
+    const goalProgress = useMemo(() => {
+        if (!profile || profile.goalType === "maintain" || !profile.goalWeightKg)
+            return null;
+        const trend = weightTrend(entries);
+        if (trend.length === 0)
+            return null;
+        const startWeight = trend[0].trend;
+        const currentWeight = trend[trend.length - 1].trend;
+        const totalNeeded = startWeight - profile.goalWeightKg;
+        if (Math.abs(totalNeeded) < 0.05)
+            return null;
+        const achieved = startWeight - currentWeight;
+        const pct = Math.max(0, Math.min(100, (achieved / totalNeeded) * 100));
+        return { pct: Math.round(pct), startWeight, currentWeight, goalWeightKg: profile.goalWeightKg };
+    }, [profile, entries]);
+    // ---------- this week vs last week ----------
+    const weekComparison = useMemo(() => {
+        const trend = weightTrend(entries);
+        const dayNum = (d) => Math.round(new Date(d) / 86400000);
+        const todayNum = dayNum(today);
+        const avgInRange = (arr, key, startAgo, endAgo) => {
+            const lo = todayNum - startAgo, hi = todayNum - endAgo;
+            const vals = arr.filter((e) => { const n = dayNum(e.date); return n >= lo && n <= hi; }).map((e) => (key ? e[key] : e.trend)).filter((v) => v != null);
+            return vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+        };
+        const thisWeekWeight = avgInRange(trend, null, 6, 0);
+        const lastWeekWeight = avgInRange(trend, null, 13, 7);
+        const thisWeekCals = avgInRange(entries, "calories", 6, 0);
+        const lastWeekCals = avgInRange(entries, "calories", 13, 7);
+        if (thisWeekWeight == null && thisWeekCals == null)
+            return null;
+        return {
+            weightDelta: thisWeekWeight != null && lastWeekWeight != null ? thisWeekWeight - lastWeekWeight : null,
+            calsDelta: thisWeekCals != null && lastWeekCals != null ? Math.round(thisWeekCals - lastWeekCals) : null,
+            thisWeekCals: thisWeekCals != null ? Math.round(thisWeekCals) : null,
+        };
+    }, [entries, today]);
+    // ---------- milestone celebrations ----------
+    useEffect(() => {
+        if (!loaded || !profile)
+            return;
+        const trend = weightTrend(entries);
+        if (trend.length === 0)
+            return;
+        const startWeight = trend[0].trend;
+        const currentWeight = trend[trend.length - 1].trend;
+        const lostKg = startWeight - currentWeight; // positive = moving toward loss
+        // milestone unit: 1kg (metric) or ~0.45kg per lb step (imperial), whichever matches display units
+        const stepKg = units === "metric" ? 1 : 1 / 2.20462;
+        const milestoneCount = Math.floor(Math.abs(lostKg) / stepKg) * Math.sign(lostKg || 1);
+        if (milestoneCount <= 0)
+            return;
+        (async () => {
+            let celebrated = [];
+            try {
+                const c = await window.storage.get("milestones", false);
+                if (c)
+                    celebrated = JSON.parse(c.value);
+            }
+            catch { }
+            if (!celebrated.includes(milestoneCount)) {
+                const next = [...celebrated, milestoneCount];
+                try {
+                    await window.storage.set("milestones", JSON.stringify(next), false);
+                }
+                catch { }
+                const amount = milestoneCount * stepKg;
+                flashToast(`🎉 ${fmt(kgToDisplay(Math.abs(amount)), 0)} ${weightUnit} down from where you started!`);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [entries, loaded, profile, units]);
     if (!loaded) {
         return (React.createElement("div", { className: "min-h-screen flex items-center justify-center bg-cream" },
             React.createElement("div", { className: "text-teal font-medium tracking-wide" }, "Loading\u2026")));
@@ -13135,7 +13219,57 @@ function CalorieTracker() {
                     React.createElement("span", { className: "text-sm text-brown" },
                         "kcal ",
                         sevenDaySummary.total > 0 ? "over" : sevenDaySummary.total < 0 ? "under" : "at",
-                        " target")))),
+                        " target")),
+                weekComparison && (weekComparison.weightDelta != null || weekComparison.calsDelta != null) && (React.createElement("div", { className: "flex gap-4 mt-4 pt-4 border-t border-line" },
+                    weekComparison.weightDelta != null && (React.createElement("div", { className: "flex-1" },
+                        React.createElement("p", { className: "text-xs text-tan mb-0.5" }, "Weight vs last week"),
+                        React.createElement("p", { className: "text-sm font-medium flex items-center gap-1", style: { color: weekComparison.weightDelta <= 0 ? "#2A5F58" : "#C4622D" } },
+                            weekComparison.weightDelta > 0.02 ? "▲" : weekComparison.weightDelta < -0.02 ? "▼" : "—",
+                            fmt(kgToDisplay(Math.abs(weekComparison.weightDelta)), 1),
+                            " ",
+                            weightUnit))),
+                    weekComparison.calsDelta != null && (React.createElement("div", { className: "flex-1" },
+                        React.createElement("p", { className: "text-xs text-tan mb-0.5" }, "Avg intake vs last week"),
+                        React.createElement("p", { className: "text-sm font-medium flex items-center gap-1", style: { color: weekComparison.calsDelta <= 0 ? "#2A5F58" : "#C4622D" } },
+                            weekComparison.calsDelta > 5 ? "▲" : weekComparison.calsDelta < -5 ? "▼" : "—",
+                            Math.abs(weekComparison.calsDelta).toLocaleString(),
+                            " kcal"))))))),
+            deficitBanked && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
+                React.createElement("h2", { className: "font-bold text-lg mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Deficit banked"),
+                React.createElement("p", { className: "text-xs text-tan mb-3" },
+                    "All-time, from ",
+                    deficitBanked.days,
+                    " logged day",
+                    deficitBanked.days === 1 ? "" : "s"),
+                React.createElement("div", { className: "flex items-baseline gap-2" },
+                    React.createElement("span", { className: "text-3xl font-bold", style: { fontFamily: "'Space Grotesk', sans-serif", color: deficitBanked.kg >= 0 ? "#2A5F58" : "#C4622D" } },
+                        deficitBanked.kg >= 0 ? "" : "−",
+                        fmt(kgToDisplay(Math.abs(deficitBanked.kg)), 2)),
+                    React.createElement("span", { className: "text-sm text-brown" },
+                        weightUnit,
+                        " theoretical ",
+                        deficitBanked.kg >= 0 ? "loss" : "gain",
+                        " from diet alone")),
+                React.createElement("p", { className: "text-xs text-tan mt-2" }, "Based on your logged intake vs. target \u2014 the scale may show something a little different day to day, but this is what your eating has actually banked."))),
+            goalProgress && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
+                React.createElement("div", { className: "flex items-center justify-between mb-3" },
+                    React.createElement("h2", { className: "font-bold text-lg", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Goal progress"),
+                    React.createElement("span", { className: "text-lg font-bold text-teal", style: { fontFamily: "'Space Grotesk', sans-serif" } },
+                        goalProgress.pct,
+                        "%")),
+                React.createElement("div", { className: "w-full h-3 rounded-full bg-cream border border-line overflow-hidden mb-2" },
+                    React.createElement("div", { className: "h-full bg-teal rounded-full transition-all", style: { width: `${goalProgress.pct}%` } })),
+                React.createElement("div", { className: "flex justify-between text-xs text-tan" },
+                    React.createElement("span", null,
+                        fmt(kgToDisplay(goalProgress.startWeight), 1),
+                        " ",
+                        weightUnit,
+                        " start"),
+                    React.createElement("span", null,
+                        fmt(kgToDisplay(goalProgress.goalWeightKg), 1),
+                        " ",
+                        weightUnit,
+                        " goal")))),
             goalProjection && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
                 React.createElement("div", { className: "flex items-center gap-2 mb-3" },
                     React.createElement(Target, { size: 18, className: "text-teal" }),
@@ -13502,7 +13636,7 @@ function ImportModal({ onClose, onImport }) {
                 " day",
                 result.rows.length === 1 ? "" : "s")))));
 }
-// ---------- lightweight custom chart (replaces recharts for standalone use) ----------
+// ---------- lightweight custom chart (no external chart library needed) ----------
 function Chart({ data, series, height = 180, referenceLine, formatLeftY, formatRightY }) {
     const width = 600;
     const padding = { top: 10, right: 40, bottom: 22, left: 40 };
