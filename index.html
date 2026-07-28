@@ -12807,6 +12807,7 @@ const { useState, useEffect, useMemo, useCallback } = React;
 // ---------- lightweight icon shims (no external icon library needed) ----------
 const Icon = ({ size = 16, className = "", children }) => (React.createElement("span", { className: className, style: { fontSize: size, lineHeight: 1, display: "inline-block" } }, children));
 const Flame = (p) => React.createElement(Icon, { ...p }, "\uD83D\uDD25");
+const Beef = (p) => React.createElement(Icon, { ...p }, "\uD83E\uDD69");
 const Scale = (p) => React.createElement(Icon, { ...p }, "\u2696\uFE0F");
 const TrendingDown = (p) => React.createElement(Icon, { ...p }, "\uD83D\uDCC9");
 const TrendingUp = (p) => React.createElement(Icon, { ...p }, "\uD83D\uDCC8");
@@ -12935,6 +12936,7 @@ function CalorieTracker() {
     // current TDEE estimate = adaptive if we have one, else initial
     const currentTDEE = (_a = tdeeState === null || tdeeState === void 0 ? void 0 : tdeeState.estimate) !== null && _a !== void 0 ? _a : initialTDEE;
     const dailyTarget = currentTDEE != null ? Math.round(currentTDEE + goalAdjustment) : null;
+    const proteinGoalG = dailyTarget != null ? Math.round((dailyTarget * 0.3) / 4) : null; // protein = 4 kcal/g
     // ---------- adaptive recalculation ----------
     // Runs whenever entries change: looks at last 14 days of data, recalcs at most once every 7 days
     useEffect(() => {
@@ -13016,8 +13018,8 @@ function CalorieTracker() {
         const trend = weightTrend(entries);
         const byDate = {};
         entries.forEach((e) => {
-            var _a, _b;
-            byDate[e.date] = { date: e.date, calories: (_a = e.calories) !== null && _a !== void 0 ? _a : null, steps: (_b = e.steps) !== null && _b !== void 0 ? _b : null, target: dailyTarget };
+            var _a, _b, _c;
+            byDate[e.date] = { date: e.date, calories: (_a = e.calories) !== null && _a !== void 0 ? _a : null, steps: (_b = e.steps) !== null && _b !== void 0 ? _b : null, protein: (_c = e.protein) !== null && _c !== void 0 ? _c : null, target: dailyTarget };
         });
         trend.forEach((t) => {
             byDate[t.date] = { ...(byDate[t.date] || { date: t.date }), weight: t.weight, weightTrend: Math.round(t.trend * 10) / 10 };
@@ -13178,8 +13180,9 @@ function CalorieTracker() {
                 React.createElement("div", { className: "flex items-center justify-between mb-4" },
                     React.createElement("h2", { className: "font-bold text-lg", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Today"),
                     React.createElement("span", { className: "text-xs text-tan" }, today)),
-                React.createElement("div", { className: "grid grid-cols-3 gap-3 mb-4" },
+                React.createElement("div", { className: "grid grid-cols-2 gap-3 mb-4" },
                     React.createElement(StatBlock, { icon: React.createElement(Flame, { size: 16 }), label: "Logged", value: (todayEntry === null || todayEntry === void 0 ? void 0 : todayEntry.calories) != null ? `${todayEntry.calories}` : "—", sub: "kcal eaten", accent: "#C4622D" }),
+                    React.createElement(StatBlock, { icon: React.createElement(Beef, { size: 16 }), label: "Protein", value: (todayEntry === null || todayEntry === void 0 ? void 0 : todayEntry.protein) != null ? `${todayEntry.protein}g` : "—", sub: proteinGoalG != null ? `of ${proteinGoalG}g goal` : "grams", accent: "#8A3E2B" }),
                     React.createElement(StatBlock, { icon: React.createElement(Scale, { size: 16 }), label: "Weight", value: (todayEntry === null || todayEntry === void 0 ? void 0 : todayEntry.weight) != null ? fmt(kgToDisplay(todayEntry.weight), 1) : "—", sub: weightUnit, accent: "#2A5F58" }),
                     React.createElement(StatBlock, { icon: React.createElement(Footprints, { size: 16 }), label: "Steps", value: (todayEntry === null || todayEntry === void 0 ? void 0 : todayEntry.steps) != null ? todayEntry.steps.toLocaleString() : "—", sub: "steps", accent: "#B8862B" })),
                 React.createElement("div", { className: "flex gap-3" },
@@ -13204,7 +13207,10 @@ function CalorieTracker() {
                     ], formatLeftY: (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : Math.round(v)), formatRightY: (v) => fmt(kgToDisplay(v), 1) }),
                 React.createElement("h2", { className: "font-bold text-lg mt-6 mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Calories vs target"),
                 React.createElement("p", { className: "text-xs text-tan mb-4" }, "Last 30 days"),
-                React.createElement(Chart, { data: chartData, height: 180, series: [{ key: "calories", type: "line", color: "#C4622D" }], referenceLine: dailyTarget != null ? dailyTarget : undefined }))),
+                React.createElement(Chart, { data: chartData, height: 180, series: [{ key: "calories", type: "line", color: "#C4622D" }], referenceLine: dailyTarget != null ? dailyTarget : undefined }),
+                React.createElement("h2", { className: "font-bold text-lg mt-6 mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Protein vs goal"),
+                React.createElement("p", { className: "text-xs text-tan mb-4" }, "Goal set at 30% of calories \u00B7 last 30 days"),
+                React.createElement(Chart, { data: chartData, height: 180, series: [{ key: "protein", type: "line", color: "#8A3E2B" }], referenceLine: proteinGoalG != null ? proteinGoalG : undefined, formatLeftY: (v) => `${Math.round(v)}g` }))),
             sevenDaySummary && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
                 React.createElement("h2", { className: "font-bold text-lg mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Last 7 days vs target"),
                 React.createElement("p", { className: "text-xs text-tan mb-3" },
@@ -13308,6 +13314,10 @@ function CalorieTracker() {
                             React.createElement(Flame, { size: 13 }),
                             " ",
                             e.calories != null ? e.calories : "—"),
+                        React.createElement("span", { className: "flex items-center gap-1", style: { color: "#8A3E2B" } },
+                            React.createElement(Beef, { size: 13 }),
+                            " ",
+                            e.protein != null ? `${e.protein}g` : "—"),
                         React.createElement("span", { className: "flex items-center gap-1 text-teal" },
                             React.createElement(Scale, { size: 13 }),
                             " ",
@@ -13374,6 +13384,7 @@ function EntryModal({ initialDate, maxDate, entries, units, kgToDisplay, display
     const [date, setDate] = useState(initialDate);
     const existing = entries.find((e) => e.date === date);
     const [calories, setCalories] = useState((existing === null || existing === void 0 ? void 0 : existing.calories) != null ? String(existing.calories) : "");
+    const [protein, setProtein] = useState((existing === null || existing === void 0 ? void 0 : existing.protein) != null ? String(existing.protein) : "");
     const [weight, setWeight] = useState((existing === null || existing === void 0 ? void 0 : existing.weight) != null ? String(Math.round(kgToDisplay(existing.weight) * 10) / 10) : "");
     const [steps, setSteps] = useState((existing === null || existing === void 0 ? void 0 : existing.steps) != null ? String(existing.steps) : "");
     // when the date changes, prefill from whatever's already logged for that day
@@ -13381,16 +13392,20 @@ function EntryModal({ initialDate, maxDate, entries, units, kgToDisplay, display
         setDate(newDate);
         const e = entries.find((x) => x.date === newDate);
         setCalories((e === null || e === void 0 ? void 0 : e.calories) != null ? String(e.calories) : "");
+        setProtein((e === null || e === void 0 ? void 0 : e.protein) != null ? String(e.protein) : "");
         setWeight((e === null || e === void 0 ? void 0 : e.weight) != null ? String(Math.round(kgToDisplay(e.weight) * 10) / 10) : "");
         setSteps((e === null || e === void 0 ? void 0 : e.steps) != null ? String(e.steps) : "");
     };
     const save = () => {
         const patch = {};
         const c = parseFloat(calories);
+        const p = parseFloat(protein);
         const w = parseFloat(weight);
         const s = parseInt(steps, 10);
         if (Number.isFinite(c) && c > 0)
             patch.calories = Math.round(c);
+        if (Number.isFinite(p) && p >= 0)
+            patch.protein = Math.round(p);
         if (Number.isFinite(w) && w > 0)
             patch.weight = displayToKg(w);
         if (Number.isFinite(s) && s >= 0)
@@ -13413,6 +13428,11 @@ function EntryModal({ initialDate, maxDate, entries, units, kgToDisplay, display
                     React.createElement("div", { className: "flex items-center gap-2" },
                         React.createElement("input", { autoFocus: true, type: "number", value: calories, onChange: (e) => setCalories(e.target.value), placeholder: "0", className: "flex-1 border-2 border-line rounded-xl px-3 py-2.5 text-base font-medium focus:outline-none focus:border-teal" }),
                         React.createElement("span", { className: "text-xs text-tan w-10" }, "kcal"))),
+                React.createElement("div", null,
+                    React.createElement("label", { className: "text-xs font-medium text-brown mb-1 block" }, "Protein"),
+                    React.createElement("div", { className: "flex items-center gap-2" },
+                        React.createElement("input", { type: "number", value: protein, onChange: (e) => setProtein(e.target.value), placeholder: "0", className: "flex-1 border-2 border-line rounded-xl px-3 py-2.5 text-base font-medium focus:outline-none focus:border-teal" }),
+                        React.createElement("span", { className: "text-xs text-tan w-10" }, "g"))),
                 React.createElement("div", null,
                     React.createElement("label", { className: "text-xs font-medium text-brown mb-1 block" }, "Weight"),
                     React.createElement("div", { className: "flex items-center gap-2" },
@@ -13579,11 +13599,12 @@ function ImportModal({ onClose, onImport }) {
         const header = lines[0].toLowerCase().split(",").map((h) => h.trim());
         const hasHeader = header.includes("date");
         const dataLines = hasHeader ? lines.slice(1) : lines;
-        const cols = hasHeader ? header : ["date", "steps", "weight", "calories"];
+        const cols = hasHeader ? header : ["date", "steps", "weight", "calories", "protein"];
         const dateIdx = cols.indexOf("date");
         const stepsIdx = cols.indexOf("steps");
         const weightIdx = cols.indexOf("weight");
         const calIdx = cols.indexOf("calories");
+        const proteinIdx = cols.indexOf("protein");
         const rows = [];
         let skipped = 0;
         dataLines.forEach((line) => {
@@ -13602,6 +13623,8 @@ function ImportModal({ onClose, onImport }) {
                 row.weight = parseFloat(parts[weightIdx]);
             if (calIdx >= 0 && parts[calIdx] && !isNaN(parseFloat(parts[calIdx])))
                 row.calories = Math.round(parseFloat(parts[calIdx]));
+            if (proteinIdx >= 0 && parts[proteinIdx] && !isNaN(parseFloat(parts[proteinIdx])))
+                row.protein = Math.round(parseFloat(parts[proteinIdx]));
             if (Object.keys(row).length > 1)
                 rows.push(row);
             else
@@ -13620,8 +13643,8 @@ function ImportModal({ onClose, onImport }) {
                 React.createElement("p", { className: "text-xs text-brown leading-relaxed" }, "There's no direct web link to Apple Health \u2014 Apple only exposes HealthKit to native iOS apps, not browsers. The closest workaround: use the Shortcuts app to pull your Steps and Active Energy, format them as CSV, and paste the result below. Weight can be added the same way.")),
             React.createElement("label", { className: "text-xs font-medium text-brown mb-1 block" },
                 "Paste CSV \u2014 one row per day: ",
-                React.createElement("span", { className: "font-mono" }, "date,steps,weight,calories")),
-            React.createElement("textarea", { value: text, onChange: (e) => { setText(e.target.value); setResult(null); }, placeholder: "date,steps,weight,calories\n2026-07-20,8342,68.2,2100\n2026-07-21,10211,,2050", rows: 6, className: "w-full border-2 border-line rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:border-teal mb-3" }),
+                React.createElement("span", { className: "font-mono" }, "date,steps,weight,calories,protein")),
+            React.createElement("textarea", { value: text, onChange: (e) => { setText(e.target.value); setResult(null); }, placeholder: "date,steps,weight,calories,protein\n2026-07-20,8342,68.2,2100,140\n2026-07-21,10211,,2050,", rows: 6, className: "w-full border-2 border-line rounded-xl px-3 py-2.5 text-xs font-mono focus:outline-none focus:border-teal mb-3" }),
             React.createElement("p", { className: "text-xs text-tan mb-4" }, "Leave a cell blank to skip that field for a day. Weight should be in the units you set up with (kg or lb)."),
             result && (React.createElement("div", { className: "bg-cream rounded-xl p-3 mb-4 text-xs text-brown" },
                 "Parsed ",
