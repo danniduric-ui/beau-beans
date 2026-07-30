@@ -39,7 +39,7 @@
 <body>
 <div id="root"></div>
 <script>
-/* ---- React + ReactDOM (bundled, no CDN dependency) ---- */
+/* ---- React + ReactDOM (bundled) ---- */
 (() => {
   var __create = Object.create;
   var __defProp = Object.defineProperty;
@@ -12801,7 +12801,7 @@ react-dom/cjs/react-dom-client.production.js:
    *)
 */
 
-/* ---- App code (pre-compiled from JSX, no runtime Babel needed) ---- */
+/* ---- App code (pre-compiled from JSX) ---- */
 "use strict";
 const { useState, useEffect, useMemo, useCallback } = React;
 // ---------- lightweight icon shims (no external icon library needed) ----------
@@ -12855,8 +12855,21 @@ function weightTrend(entries) {
     }
     return out;
 }
+// total logged vs target over the last 7 days for any numeric field (calories, steps, protein)
+function weeklyOverUnder(entries, key, targetPerDay, todayISOStr) {
+    if (targetPerDay == null)
+        return null;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 6);
+    const cutoffISO = cutoff.toISOString().slice(0, 10);
+    const window = entries.filter((e) => e.date >= cutoffISO && e.date <= todayISOStr && e[key] != null);
+    if (window.length === 0)
+        return null;
+    const total = Math.round(window.reduce((s, e) => s + (e[key] - targetPerDay), 0));
+    return { total, days: window.length };
+}
 function CalorieTracker() {
-    var _a;
+    var _a, _b;
     const [loaded, setLoaded] = useState(false);
     const [profile, setProfile] = useState(null);
     const [entries, setEntries] = useState([]);
@@ -12937,6 +12950,7 @@ function CalorieTracker() {
     const currentTDEE = (_a = tdeeState === null || tdeeState === void 0 ? void 0 : tdeeState.estimate) !== null && _a !== void 0 ? _a : initialTDEE;
     const dailyTarget = currentTDEE != null ? Math.round(currentTDEE + goalAdjustment) : null;
     const proteinGoalG = dailyTarget != null ? Math.round((dailyTarget * 0.3) / 4) : null; // protein = 4 kcal/g
+    const stepGoal = (_b = profile === null || profile === void 0 ? void 0 : profile.stepGoal) !== null && _b !== void 0 ? _b : 10000;
     // ---------- adaptive recalculation ----------
     // Runs whenever entries change: looks at last 14 days of data, recalcs at most once every 7 days
     useEffect(() => {
@@ -13028,18 +13042,9 @@ function CalorieTracker() {
     }, [entries, dailyTarget]);
     const recentEntries = useMemo(() => [...entries].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 10), [entries]);
     // ---------- 7-day over/under target ----------
-    const sevenDaySummary = useMemo(() => {
-        if (dailyTarget == null)
-            return null;
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 6);
-        const cutoffISO = cutoff.toISOString().slice(0, 10);
-        const window = entries.filter((e) => e.date >= cutoffISO && e.date <= today && e.calories != null);
-        if (window.length === 0)
-            return null;
-        const total = Math.round(window.reduce((s, e) => s + (e.calories - dailyTarget), 0));
-        return { total, days: window.length };
-    }, [entries, dailyTarget, today]);
+    const sevenDaySummary = useMemo(() => weeklyOverUnder(entries, "calories", dailyTarget, today), [entries, dailyTarget, today]);
+    const stepsSevenDaySummary = useMemo(() => weeklyOverUnder(entries, "steps", stepGoal, today), [entries, stepGoal, today]);
+    const proteinSevenDaySummary = useMemo(() => weeklyOverUnder(entries, "protein", proteinGoalG, today), [entries, proteinGoalG, today]);
     // ---------- time to goal weight ----------
     const goalProjection = useMemo(() => {
         if (!profile || profile.goalType === "maintain" || !profile.goalWeightKg || currentTDEE == null)
@@ -13113,12 +13118,18 @@ function CalorieTracker() {
         const lastWeekWeight = avgInRange(trend, null, 13, 7);
         const thisWeekCals = avgInRange(entries, "calories", 6, 0);
         const lastWeekCals = avgInRange(entries, "calories", 13, 7);
-        if (thisWeekWeight == null && thisWeekCals == null)
+        const thisWeekSteps = avgInRange(entries, "steps", 6, 0);
+        const lastWeekSteps = avgInRange(entries, "steps", 13, 7);
+        const thisWeekProtein = avgInRange(entries, "protein", 6, 0);
+        const lastWeekProtein = avgInRange(entries, "protein", 13, 7);
+        if (thisWeekWeight == null && thisWeekCals == null && thisWeekSteps == null && thisWeekProtein == null)
             return null;
         return {
             weightDelta: thisWeekWeight != null && lastWeekWeight != null ? thisWeekWeight - lastWeekWeight : null,
             calsDelta: thisWeekCals != null && lastWeekCals != null ? Math.round(thisWeekCals - lastWeekCals) : null,
             thisWeekCals: thisWeekCals != null ? Math.round(thisWeekCals) : null,
+            stepsDelta: thisWeekSteps != null && lastWeekSteps != null ? Math.round(thisWeekSteps - lastWeekSteps) : null,
+            proteinDelta: thisWeekProtein != null && lastWeekProtein != null ? Math.round(thisWeekProtein - lastWeekProtein) : null,
         };
     }, [entries, today]);
     // ---------- milestone celebrations ----------
@@ -13200,11 +13211,11 @@ function CalorieTracker() {
                         { key: "weight", type: "dots", color: "#D4A017" },
                     ], formatLeftY: (v) => fmt(kgToDisplay(v), 1) }),
                 React.createElement("h2", { className: "font-bold text-lg mt-6 mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Weight vs steps"),
-                React.createElement("p", { className: "text-xs text-tan mb-4" }, "Weight trend (line) against daily steps (bars) \u00B7 last 30 days"),
+                React.createElement("p", { className: "text-xs text-tan mb-4" }, "Weight trend (line) against daily steps (bars), dashed line = step target \u00B7 last 30 days"),
                 React.createElement(Chart, { data: chartData, height: 180, series: [
                         { key: "steps", type: "bar", color: "#B8862B", opacity: 0.55 },
                         { key: "weightTrend", type: "line", color: "#2A5F58", axis: "right" },
-                    ], formatLeftY: (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : Math.round(v)), formatRightY: (v) => fmt(kgToDisplay(v), 1) }),
+                    ], referenceLine: stepGoal != null ? stepGoal : undefined, formatLeftY: (v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : Math.round(v)), formatRightY: (v) => fmt(kgToDisplay(v), 1) }),
                 React.createElement("h2", { className: "font-bold text-lg mt-6 mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Calories vs target"),
                 React.createElement("p", { className: "text-xs text-tan mb-4" }, "Last 30 days"),
                 React.createElement(Chart, { data: chartData, height: 180, series: [{ key: "calories", type: "line", color: "#C4622D" }], referenceLine: dailyTarget != null ? dailyTarget : undefined }),
@@ -13240,6 +13251,50 @@ function CalorieTracker() {
                             weekComparison.calsDelta > 5 ? "▲" : weekComparison.calsDelta < -5 ? "▼" : "—",
                             Math.abs(weekComparison.calsDelta).toLocaleString(),
                             " kcal"))))))),
+            stepsSevenDaySummary && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
+                React.createElement("h2", { className: "font-bold text-lg mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Steps \u2014 last 7 days vs target"),
+                React.createElement("p", { className: "text-xs text-tan mb-3" },
+                    "Based on ",
+                    stepsSevenDaySummary.days,
+                    " logged day",
+                    stepsSevenDaySummary.days === 1 ? "" : "s"),
+                React.createElement("div", { className: "flex items-baseline gap-2" },
+                    React.createElement("span", { className: "text-3xl font-bold", style: { fontFamily: "'Space Grotesk', sans-serif", color: stepsSevenDaySummary.total >= 0 ? "#2A5F58" : "#C4622D" } },
+                        stepsSevenDaySummary.total > 0 ? "+" : "",
+                        stepsSevenDaySummary.total.toLocaleString()),
+                    React.createElement("span", { className: "text-sm text-brown" },
+                        "steps ",
+                        stepsSevenDaySummary.total > 0 ? "over" : stepsSevenDaySummary.total < 0 ? "under" : "at",
+                        " target")),
+                (weekComparison === null || weekComparison === void 0 ? void 0 : weekComparison.stepsDelta) != null && (React.createElement("div", { className: "flex gap-4 mt-4 pt-4 border-t border-line" },
+                    React.createElement("div", { className: "flex-1" },
+                        React.createElement("p", { className: "text-xs text-tan mb-0.5" }, "Avg steps vs last week"),
+                        React.createElement("p", { className: "text-sm font-medium flex items-center gap-1", style: { color: weekComparison.stepsDelta >= 0 ? "#2A5F58" : "#C4622D" } },
+                            weekComparison.stepsDelta > 20 ? "▲" : weekComparison.stepsDelta < -20 ? "▼" : "—",
+                            Math.abs(weekComparison.stepsDelta).toLocaleString(),
+                            " steps")))))),
+            proteinSevenDaySummary && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
+                React.createElement("h2", { className: "font-bold text-lg mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Protein \u2014 last 7 days vs target"),
+                React.createElement("p", { className: "text-xs text-tan mb-3" },
+                    "Based on ",
+                    proteinSevenDaySummary.days,
+                    " logged day",
+                    proteinSevenDaySummary.days === 1 ? "" : "s"),
+                React.createElement("div", { className: "flex items-baseline gap-2" },
+                    React.createElement("span", { className: "text-3xl font-bold", style: { fontFamily: "'Space Grotesk', sans-serif", color: proteinSevenDaySummary.total >= 0 ? "#2A5F58" : "#C4622D" } },
+                        proteinSevenDaySummary.total > 0 ? "+" : "",
+                        proteinSevenDaySummary.total.toLocaleString()),
+                    React.createElement("span", { className: "text-sm text-brown" },
+                        "g ",
+                        proteinSevenDaySummary.total > 0 ? "over" : proteinSevenDaySummary.total < 0 ? "under" : "at",
+                        " target")),
+                (weekComparison === null || weekComparison === void 0 ? void 0 : weekComparison.proteinDelta) != null && (React.createElement("div", { className: "flex gap-4 mt-4 pt-4 border-t border-line" },
+                    React.createElement("div", { className: "flex-1" },
+                        React.createElement("p", { className: "text-xs text-tan mb-0.5" }, "Avg protein vs last week"),
+                        React.createElement("p", { className: "text-sm font-medium flex items-center gap-1", style: { color: weekComparison.proteinDelta >= 0 ? "#2A5F58" : "#C4622D" } },
+                            weekComparison.proteinDelta > 2 ? "▲" : weekComparison.proteinDelta < -2 ? "▼" : "—",
+                            Math.abs(weekComparison.proteinDelta),
+                            "g")))))),
             deficitBanked && (React.createElement("section", { className: "bg-white rounded-2xl border-2 border-line p-5" },
                 React.createElement("h2", { className: "font-bold text-lg mb-1", style: { fontFamily: "'Space Grotesk', sans-serif" } }, "Deficit banked"),
                 React.createElement("p", { className: "text-xs text-tan mb-3" },
@@ -13447,6 +13502,7 @@ function EntryModal({ initialDate, maxDate, entries, units, kgToDisplay, display
             React.createElement("button", { onClick: save, className: "w-full bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors" }, "Save"))));
 }
 function SettingsModal({ profile, onClose, onSave }) {
+    var _a;
     const [p, setP] = useState(profile);
     const set = (k, v) => setP((prev) => ({ ...prev, [k]: v }));
     const isMetric = p.units === "metric";
@@ -13482,6 +13538,13 @@ function SettingsModal({ profile, onClose, onSave }) {
                                 const raw = parseFloat(e.target.value);
                                 set("goalWeightKg", Number.isFinite(raw) ? (isMetric ? raw : raw / 2.20462) : undefined);
                             }, className: "input", placeholder: "e.g. 65" }))))),
+            React.createElement("div", { className: "mt-5 pt-5 border-t border-line" },
+                React.createElement(Field, { label: "Daily step target" },
+                    React.createElement("input", { type: "number", step: "500", value: (_a = p.stepGoal) !== null && _a !== void 0 ? _a : "", onChange: (e) => {
+                            const raw = parseInt(e.target.value, 10);
+                            set("stepGoal", Number.isFinite(raw) && raw >= 0 ? raw : undefined);
+                        }, className: "input", placeholder: "e.g. 10000" })),
+                React.createElement("p", { className: "text-xs text-tan mt-1" }, "Independent of your calorie/weight goal \u2014 adjust anytime.")),
             React.createElement("button", { onClick: () => onSave(p), className: "w-full bg-teal text-cream rounded-xl py-3 font-medium hover:bg-teal-dark transition-colors mt-5" }, "Save profile"),
             React.createElement("style", null, `.input { width: 100%; border: 2px solid #E3D9C4; border-radius: 0.75rem; padding: 0.5rem 0.75rem; font-size: 0.95rem; }
         .input:focus { outline: none; border-color: #2A5F58; }`))));
@@ -13516,7 +13579,7 @@ function Onboarding({ onComplete }) {
     };
     const finish = () => {
         onComplete({
-            units, sex, age: parseInt(age), heightCm, weightKg, activityLevel, goalType, rateKgPerWeek, goalWeightKg,
+            units, sex, age: parseInt(age), heightCm, weightKg, activityLevel, goalType, rateKgPerWeek, goalWeightKg, stepGoal: 10000,
         });
     };
     return (React.createElement("div", { className: "min-h-screen bg-cream text-ink flex items-center justify-center p-5", style: { fontFamily: "'Inter', ui-sans-serif, system-ui" } },
@@ -13685,7 +13748,9 @@ function Chart({ data, series, height = 180, referenceLine, formatLeftY, formatR
         max += pad;
         return { scale: (v) => padding.top + plotH - ((v - min) / (max - min)) * plotH, min, max };
     }
-    const leftY = makeYScale(collect(leftKeys), rightKeys.length === 0 ? referenceLine : undefined);
+    // referenceLine always renders against the left axis, so always fold it into the left domain
+    // (even on dual-axis charts) so it can't get clipped outside the visible plot area
+    const leftY = makeYScale(collect(leftKeys), referenceLine);
     const rightY = rightKeys.length > 0 ? makeYScale(collect(rightKeys)) : null;
     const labelStep = Math.max(1, Math.ceil(data.length / 6));
     return (React.createElement("div", { style: { width: "100%", overflow: "hidden" } },
